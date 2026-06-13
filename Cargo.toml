@@ -1,0 +1,16 @@
+[package]
+name = "renamer"
+version = "1.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "renamer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"       # Error handling with anyhow::Result
+walkdir = "2.5"      # Recursive directory walking (Faster and safer than std)
+regex = "1.11"       # Pattern matching for filenames
+tokio = { version = "1.43", features = ["full"] }             # Async runtime
