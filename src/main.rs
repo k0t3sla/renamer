@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 #[derive(Debug, Deserialize)]
 struct BarcodeEntry {
     art: String,
-    barcode: String,
+    barcode: Option<String>,
 }
 
 async fn fetch_barcodes() -> Result<Vec<BarcodeEntry>> {
@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
 
     let barcode_map: HashMap<String, String> = barcodes
         .into_iter()
-        .map(|e| (e.art, e.barcode))
+        .map(|e| (e.art, e.barcode.unwrap_or_default()))
         .collect();
 
     let mut errors: Vec<String> = Vec::new();
