@@ -1,21 +1,31 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
+use serde::Deserialize;
 use walkdir::WalkDir;
 
-/// Fake API: возвращает детерминированный ID на основе хеша префикса.
-/// В будущем заменяется на реальный HTTP-запрос через reqwest.
-async fn fetch_id(prefix: &str) -> Result<u64> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+#[derive(Debug, Deserialize)]
+struct BarcodeEntry {
+    art: String,
+    barcode: String,
+}
 
-    let mut hasher = DefaultHasher::new();
-    prefix.hash(&mut hasher);
-    let id = hasher.finish() % 10_000_000;
-    Ok(id)
+async fn fetch_barcodes() -> Result<Vec<BarcodeEntry>> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://shop.citilux.ru/api/sale/getBarcodes/")
+        .send()
+        .await
+        .context("Failed to connect to API")?
+        .json::<Vec<BarcodeEntry>>()
+        .await
+        .context("Failed to parse API response")?;
+    Ok(resp)
 }
 
 fn find_matching_files(root: &Path) -> Result<Vec<PathBuf>> {
@@ -67,10 +77,10 @@ fn group_files(files: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
     groups
 }
 
-fn rename_group(prefix: &str, api_id: u64, files: &[PathBuf]) -> Result<()> {
+fn rename_group(prefix: &str, barcode: &str, files: &[PathBuf]) -> Result<()> {
     for (i, path) in files.iter().enumerate() {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let new_name = format!("{}_{}_{}.{}", prefix, api_id, i + 1, ext);
+        let new_name = format!("{}_{}_{}.{}", prefix, barcode, i + 1, ext);
         let new_path = path.parent().unwrap().join(&new_name);
 
         if new_path.exists() {
@@ -93,6 +103,19 @@ fn rename_group(prefix: &str, api_id: u64, files: &[PathBuf]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_errors(errors: &[String]) {
+    if errors.is_empty() {
+        return;
+    }
+    println!("\n========== ERRORS ==========");
+    for err in errors {
+        println!("{}", err);
+    }
+    println!("============================");
+    println!("\nClosing in 10 seconds...");
+    thread::sleep(Duration::from_secs(10));
 }
 
 #[tokio::main]
@@ -134,20 +157,55 @@ async fn main() -> Result<()> {
         }
     }
 
-    println!("\nFetching IDs from API...");
-    let mut id_map: HashMap<String, u64> = HashMap::new();
+    println!("\nFetching barcodes from API...");
+    let barcodes = match fetch_barcodes().await {
+        Ok(b) => b,
+        Err(e) => {
+            bail!("API request failed: {}", e);
+        }
+    };
+
+    let barcode_map: HashMap<String, String> = barcodes
+        .into_iter()
+        .map(|e| (e.art, e.barcode))
+        .collect();
+
+    let mut errors: Vec<String> = Vec::new();
+    let mut rename_map: HashMap<String, String> = HashMap::new();
+
     for prefix in groups.keys() {
-        let id = fetch_id(prefix).await?;
-        println!("  {} → {}", prefix, id);
-        id_map.insert(prefix.clone(), id);
+        match barcode_map.get(prefix.as_str()) {
+            Some(barcode) if !barcode.is_empty() => {
+                rename_map.insert(prefix.clone(), barcode.clone());
+                println!("  {} → {}", prefix, barcode);
+            }
+            Some(_barcode) => {
+                let msg = format!(
+                    "SKIP: '{}' — barcode is empty in API response",
+                    prefix
+                );
+                println!("  {}", msg);
+                errors.push(msg);
+            }
+            None => {
+                let msg = format!(
+                    "SKIP: '{}' — article not found in API response",
+                    prefix
+                );
+                println!("  {}", msg);
+                errors.push(msg);
+            }
+        }
     }
 
     println!("\nRenaming:");
     for (prefix, paths) in &groups {
-        let id = *id_map.get(prefix.as_str()).unwrap();
-        rename_group(prefix, id, paths)?;
+        if let Some(barcode) = rename_map.get(prefix.as_str()) {
+            rename_group(prefix, barcode, paths)?;
+        }
     }
 
     println!("\nDone.");
+    print_errors(&errors);
     Ok(())
 }

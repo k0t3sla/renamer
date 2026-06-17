@@ -10,7 +10,10 @@ name = "renamer"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0"       # Error handling with anyhow::Result
-walkdir = "2.5"      # Recursive directory walking (Faster and safer than std)
-regex = "1.11"       # Pattern matching for filenames
-tokio = { version = "1.43", features = ["full"] }             # Async runtime
+anyhow = "1.0"
+walkdir = "2.5"
+regex = "1.11"
+tokio = { version = "1.43", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
